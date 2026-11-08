@@ -3,6 +3,7 @@ target DynamoDB items. Shared by migrate.py, verify.py and rollback.py."""
 
 import csv
 import os
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -22,13 +23,25 @@ def read_rows(path: Path = EXPORT) -> list[dict]:
         return list(csv.DictReader(f))
 
 
+def oracle_date_to_iso(value: str) -> str:
+    """Oracle's default DATE export (DD-MON-YY, e.g. 01-JAN-24) -> ISO 8601 (2024-01-01), the
+    format the target schema and the claims service read. ISO dates pass through unchanged."""
+    value = value.strip()
+    for fmt in ("%d-%b-%y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value.title() if fmt == "%d-%b-%y" else value, fmt).date().isoformat()
+        except ValueError:
+            continue
+    raise ValueError(f"unrecognised service date {value!r}")
+
+
 def to_item(row: dict) -> dict:
     """One export row -> one DynamoDB item, with the target schema's field names."""
     return {
         "claim_id": row["CLAIM_ID"],
         "member_id": row["MEMBER_ID"],
         "provider_id": row["PROVIDER_ID"],
-        "service_date": row["SERVICE_DATE"],
+        "service_date": oracle_date_to_iso(row["SERVICE_DATE"]),
         "amount": Decimal(row["AMOUNT"]),
         "diagnosis_code": row["DIAGNOSIS_CODE"],
         "status": row["CLAIM_STATUS"].lower(),
